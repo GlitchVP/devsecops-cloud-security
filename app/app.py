@@ -5,7 +5,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # ВИПРАВЛЕНО: Секрет не зберігається в коді, а отримується динамічно зі змінних середовища (від Vault)
-API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "default_fallback_for_local_test")
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY")
 
 @app.route("/")
 def index():

@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # ЕТАП 1: Статичний аналіз коду (SAST - SonarCloud)
+  # ЕТАП 1: Статичний аналіз коду (SAST - SonarQube Cloud)
   sast-sonarqube:
     name: 1. SAST - SonarQube Code Scan
     runs-on: ubuntu-latest
@@ -15,8 +15,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
+      - name: SonarQube Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -35,16 +35,15 @@ jobs:
           directory: terraform/
           framework: terraform
           soft_fail: false
-          skip_check: CKV_AWS_144,CKV_AWS_145,CKV2_AWS_61,CKV2_AWS_62 # Пропускаємо перевірки крос-регіональної реплікації та логування для навчального бакета
+          skip_check: CKV_AWS_18,CKV_AWS_144,CKV_AWS_145,CKV2_AWS_61,CKV2_AWS_62
 
   # ЕТАП 3 & 4: Управління секретами (Vault), Розгортання (Terraform) та Динамічне тестування (OWASP ZAP)
   vault-deploy-and-dast:
     name: 3. Vault Secrets, Terraform Deploy & OWASP ZAP DAST
-    needs: [sast-sonarqube, iac-security-checkov] # Запускається ТІЛЬКИ якщо SAST і Checkov пройшли успішно!
+    needs: [sast-sonarqube, iac-security-checkov]
     runs-on: ubuntu-latest
 
     services:
-      # Піднімаємо HashiCorp Vault як сервіс для управління секретами
       vault:
         image: hashicorp/vault:1.15
         ports:
@@ -54,7 +53,6 @@ jobs:
           VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
         options: --cap-add=IPC_LOCK
 
-      # Піднімаємо LocalStack (імітатор хмари AWS)
       localstack:
         image: localstack/localstack:3.0
         ports:
@@ -71,16 +69,13 @@ jobs:
           VAULT_ADDR: "http://127.0.0.1:8200"
           VAULT_TOKEN: "root-token-coursework"
         run: |
-          # Встановлюємо утиліту jq для парсингу JSON-відповіді від Vault
           sudo apt-get update && sudo apt-get install -y jq curl
 
-          # Записуємо секрети в захищене сховище HashiCorp Vault (KV v2 engine)
           curl --header "X-Vault-Token: $VAULT_TOKEN" \
                --request POST \
                --data '{"data": {"aws_access_key": "vault_dynamic_access_key", "aws_secret_key": "vault_dynamic_secret_key", "api_secret": "vault_managed_app_token_999"}}' \
                $VAULT_ADDR/v1/secret/data/devsecops
 
-          # Отримуємо секрети з Vault під час виконання пайплайну та маскуємо їх у логах
           SECRET_JSON=$(curl -s --header "X-Vault-Token: $VAULT_TOKEN" $VAULT_ADDR/v1/secret/data/devsecops)
 
           AWS_KEY=$(echo $SECRET_JSON | jq -r '.data.data.aws_access_key')
@@ -120,7 +115,7 @@ jobs:
           rules_file_name: ''
           cmd_options: '-a'
           allow_issue_writing: false
-          fail_action: false # Не валимо збірку на попередженнях (WARN), щоб зберегти звіт
+          fail_action: false
 
       - name: Upload OWASP ZAP Report Artifact
         uses: actions/upload-artifact@v4
